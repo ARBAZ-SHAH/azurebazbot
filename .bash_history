@@ -173,3 +173,15 @@ sudo systemctl start chatbot.service
 sudo systemctl status chatbot.service
 sudo reboot
 sudo systemctl status chatbot.service
+cd /home/azureuser
+git init
+git config --global user.email "arbaz.shah259@gmail.com" 
+git config --global user.name "ARBAZ-SHAH"
+pip freeze > requirements.txt
+ls
+git add .
+git commit -m "Initial commit for Azure App Service deployment"
+git remote add origin https://github.com/ARBAZ-SHAH/azurebazbot.git
+git add .
+git commit -m "Initial commit for Azure App Service deployment"
+git remote add origin https://github.com/ARBAZ-SHAH/azurebazbot.git
