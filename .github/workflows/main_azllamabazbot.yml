@@ -19,7 +19,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt update
-          sudo apt install -y unattended-upgrades ufw libsystemd-dev libparted-dev pkg-config
+          sudo apt install -y unattended-upgrades ufw libsystemd-dev libparted-dev pkg-config walinuxagent
 
       - name: Set Up Python
         uses: actions/setup-python@v5
