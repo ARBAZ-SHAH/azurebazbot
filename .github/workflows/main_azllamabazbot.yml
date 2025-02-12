@@ -31,11 +31,13 @@ jobs:
           python -m venv venv
           source venv/bin/activate
 
-      - name: Upgrade Pip and Install Dependencies
+      - name: Reinstall Dependencies in Clean Environment
         run: |
+          rm -rf venv
+          python -m venv venv
+          source venv/bin/activate
           python -m pip install --upgrade pip
           pip install --no-cache-dir -r requirements.txt
-          pip install --no-cache-dir uvicorn gunicorn
 
       - name: Zip Artifact for Deployment
         run: |
