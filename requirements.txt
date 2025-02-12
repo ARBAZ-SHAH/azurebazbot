@@ -61,3 +61,6 @@ zope.interface==6.1
 fastapi
 uvicorn
 gunicorn
+ollama
+pydantic
+logging
