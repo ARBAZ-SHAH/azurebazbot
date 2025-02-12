@@ -185,3 +185,14 @@ git remote add origin https://github.com/ARBAZ-SHAH/azurebazbot.git
 git add .
 git commit -m "Initial commit for Azure App Service deployment"
 git remote add origin https://github.com/ARBAZ-SHAH/azurebazbot.git
+ls
+git add .
+git init
+git config --global user.email "arbaz.shah259@gmail.com"
+git config --global user.name "ARBAZ-SHAH"
+git add .
+git commit -m "Initial commit for Azure App Service deployment"
+git remote add origin https://github.com/ARBAZ-SHAH/azurebazbot.git
+git push -u origin main
+git branch -M main
+git push -u origin main
