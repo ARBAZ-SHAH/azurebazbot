@@ -1,19 +1,67 @@
-from fastapi import FastAPI, Query
-import uvicorn
-import ollama
-import logging
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from langchain.memory import ConversationBufferMemory
+import ollama
 from langgraph.graph import StateGraph
+from pydantic import BaseModel
+from typing import List
 
-# Configure Logging
-logging.basicConfig(level=logging.INFO)
+########################
+# 1) Define a Pydantic model for the conversation state
+########################
+class ChatState(BaseModel):
+    history: List[str] = []
 
-# Initialize FastAPI app
+########################
+# 2) Minimal usage of StateGraph with a typed schema
+########################
+class SimpleChatFlow(StateGraph):
+    def __init__(self):
+        # Provide the *type* ChatState as state_schema
+        super().__init__(state_schema=ChatState)
+
+    def chat(self, user_message: str) -> (str, str):
+        """
+        Returns a tuple: (full bot answer, 3-line summary).
+        """
+        # === 1) Main Bot Answer ===
+        try:
+            response = ollama.chat(
+                model="llama3.2:1b",
+                messages=[{"role": "user", "content": user_message}]
+            )
+            bot_content = response.get("message", {}).get("content", "").strip()
+            if not bot_content:
+                bot_content = "I didn't understand that."
+        except Exception as e:
+            bot_content = f"Error in Ollama call: {e}"
+
+        # === 2) Summarize the Bot's Answer in exactly 3 lines ===
+        summary = "No summary available."
+        try:
+            summary_prompt = (
+                f"Summarize the following text in exactly 3 lines:\n{bot_content}"
+            )
+            summary_response = ollama.chat(
+                model="llama3.2:1b",
+                messages=[{"role": "user", "content": summary_prompt}]
+            )
+            summary_text = summary_response.get("message", {}).get("content", "").strip()
+            if summary_text:
+                summary = summary_text
+        except Exception as e:
+            summary = f"Error generating summary: {e}"
+
+        return bot_content, summary
+
+# Create an instance of the flow
+chat_flow = SimpleChatFlow()
+
+########################
+# 3) Setup FastAPI
+########################
 app = FastAPI()
 
-# Enable CORS for frontend communication
+# Allow calls from anywhere (for dev)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,125 +70,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Define Chat State Model
-class ChatState(BaseModel):
-    messages: list[str]
+########################
+# 4) Request model for /chat
+########################
+class ChatRequest(BaseModel):
+    message: str
 
-# Initialize LangGraph Memory
-memory = ConversationBufferMemory()
+########################
+# 5) POST route for chatting
+########################
+@app.post("/chat")
+def chat_endpoint(req: ChatRequest):
+    user_input = req.message.strip()
+    if not user_input:
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
-# 🔹 Multi-Agent Functions
+    # Just call chat_flow.chat() which returns (fullReply, summaryReply)
+    full_answer, short_summary = chat_flow.chat(user_input)
+    return {
+        "response": full_answer,
+        "summary": short_summary
+    }
 
-# ✅ Chat Agent
-def chat_agent(state: ChatState):
-    """Handles user messages and generates chatbot response."""
-    try:
-        user_message = state.messages[-1]
-        logging.info(f"User: {user_message}")
 
-        # Store user message in memory
-        memory.save_context({"input": user_message}, {})
-
-        # Generate response from LLaMA model
-        response = ollama.chat(
-            model="llama3.2:1b",
-            messages=[{"role": "user", "content": user_message}]
-        )
-
-        bot_response = response["message"]["content"] if "message" in response else "I didn't understand that."
-        logging.info(f"Bot: {bot_response}")
-
-        # Store bot response in memory
-        memory.save_context({}, {"output": bot_response})
-
-        return ChatState(messages=[bot_response])
-
-    except Exception as e:
-        logging.error(f"Error in chat_agent: {str(e)}")
-        return ChatState(messages=["Error generating response."])
-
-# ✅ Summarizer Agent
-def summarizer_agent(state: ChatState):
-    """Summarizes chatbot response into 3 sentences."""
-    try:
-        if len(state.messages) < 1:
-            return state
-
-        last_response = state.messages[-1]
-        summary_prompt = f"Summarize this response in exactly 3 concise sentences: {last_response}"
-        logging.info(f"Summarization Request: {summary_prompt}")
-
-        response = ollama.chat(
-            model="llama3.2:1b",
-            messages=[{"role": "user", "content": summary_prompt}]
-        )
-
-        summary = response["message"]["content"] if "message" in response else None
-        logging.info(f"Summary: {summary}")
-
-        return ChatState(messages=[state.messages[-1], summary]) if summary else state
-
-    except Exception as e:
-        logging.error(f"Error in summarizer_agent: {str(e)}")
-        return ChatState(messages=[state.messages[-1], "Summary generation failed."])
-
-# ✅ Memory Agent (Retrieves Chat History)
-def memory_agent(state: ChatState):
-    """Retrieves previous chat messages for context-aware responses."""
-    try:
-        history = memory.load_memory_variables({})
-        logging.info(f"Chat History: {history}")
-
-        if history.get("output"):
-            state.messages.insert(0, history["output"])  # Add last response as context
-
-        return state
-
-    except Exception as e:
-        logging.error(f"Error in memory_agent: {str(e)}")
-        return state
-
-# 🔹 Define LangGraph Multi-Agent Chat Flow
-graph = StateGraph(ChatState)
-graph.add_node("memory_agent", memory_agent)
-graph.add_node("chat_agent", chat_agent)
-graph.add_node("summarizer_agent", summarizer_agent)
-
-# 🔗 Set execution order
-graph.set_entry_point("memory_agent")
-graph.add_edge("memory_agent", "chat_agent")
-graph.add_edge("chat_agent", "summarizer_agent")
-
-# ✅ Compile Multi-Agent Chatbot
-chat_chain = graph.compile()
-
-# 🌐 API Routes
-
-@app.get("/")
-def home():
-    return {"message": "Multi-Agent Chatbot API is running!"}
-
-@app.get("/chat")
-def chat(message: str = Query(..., description="User input message")):
-    """Handles chat requests and returns bot response + summary."""
-    try:
-        logging.info(f"Received API request: {message}")
-
-        # Process through LangGraph pipeline
-        response = chat_chain.invoke(ChatState(messages=[message]))
-
-        bot_response = response.messages[0]
-        summary = response.messages[1] if len(response.messages) > 1 else "No summary available."
-
-        return {
-            "bot": bot_response,
-            "summary": summary
-        }
-
-    except Exception as e:
-        logging.error(f"API Error: {str(e)}")
-        return {"error": str(e)}
-
-# Run FastAPI Server
+########################
+# 6) If run as main, uvicorn
+########################
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8080)
